@@ -1,14 +1,15 @@
-# Used in notebook Z 
+# To upload the datasets into Google Cloud storage
+google-cloud-storage 
+google-auth-oauthlib
+
+# Used in NYPD dataset
 pandas
 numpy
-
-# Used for code-prettify extension
-yapf
 
 # Support for connecting to MySQL from Python3
 # https://github.com/PyMySQL/mysqlclient-python
 mysqlclient
 
-
 # To remove the output from the notebooks
 nbstripout
+

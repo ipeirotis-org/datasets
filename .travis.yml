@@ -1,17 +1,12 @@
 language: python
 python:
 - '3.6'
+before_install:
+- openssl aes-256-cbc -K $encrypted_508de1ee5737_key -iv $encrypted_508de1ee5737_iv
+  -in client-secret-ipeirotis-gc.json.enc -out client-secret-ipeirotis-gc.json -d
 install:
 - pip3 install -U jupyter
 - pip3 install -U nbformat
 - pip3 install -r requirements.txt
-deploy:
-  provider: gcs
-  project_id: ipeirotis-hrd
-  access_key_id: GOOGBOXODWG2DMTYSFTMJLP6
-  secret_access_key:
-    secure: OXKH9vs4eZUPzmpdr/KN3hmGtFjjiYuDqGWF4GRL5PT6ct1e5AwR/9bHeN/tALKH97G4+oBoTzzQwn1M1xbuuJWtbWDAf5Q9ei0v0kECdpxZZO4UX4cCT2fhDp+o6EBEQGwNArWp42gakum1c2xuiUS3kaeQAbqFrUYBX7m+/C7T9tqsD/xGHjn9VABLkhyY0hTivxaLkUujWvNc0jEkqK52fomZxGCpu/k2kR98qsF9ZgSJdK6TkS+zJlcm05RQDm1abMWsYy/L60eDKJoofuMNvNgFEFTZd67i/h7qadMrqklZmBtxq+1aACXejZ0HgZpq4pzbp7Aas6ODITwAt59jf8+arnDmAPaI5HgMQSZ8VsqBrbYAWSnnitQVkTFOFH08oMrcAzBymg7lITI5uj8JDmNK2ICX33ApT0h32ADiGcmbYOHB6gGNu7KtS6kxJIk4teC9TIzzd+WFd5RMoah1r6jtWUIveUzr7JpdlWTaDkxPvCsVKEF+DBN2n+9RdkvNHjJfTeLGaA5C8DlSGq45oQlVWDOR/A2UIffb9BmXyowEzBgGShjNbtLE7piNsDGEjIrS3yMhdAb7U2cNC3aP0U0qIPDb1Api5UEBPsppOH4RaJVJnre+yehpiJ1kne0JoLptTn74l/sNNnb7PoC917XxhofxSOhYhaIpg6U=
-  bucket: datasets_nyu
-  local-dir: data
-  on:
-    repo: ipeirotis/datasets
+script:
+- python3 upload_to_google_storage.py
