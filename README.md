@@ -2,6 +2,26 @@
 
 This repository contains some static datasets, plus code that retrieves and creates datasets from live sources.
 
+## NYPD
+
+* **Source**: [NYPD Complaint Data Historic](https://data.cityofnewyork.us/Public-Safety/NYPD-Complaint-Data-Historic/qgea-i56i)
+* Output: MySQL database, SQLite db file
+
+## Citibike
+
+## Bike Sharing
+
+## Restaurants 
+
+* **Source**: [NYPD Complaint Data Historic](https://data.cityofnewyork.us/Public-Safety/NYPD-Complaint-Data-Historic/qgea-i56i)
+* Output: MySQL database, SQLite db file
+
+## Baseball
+
+
+
+## Misc files
+
 | Data Set                    | Source    | Static?   |
 |-----------------------------+-----------+-----------|
 | acc-deaths.txt              |   | |
