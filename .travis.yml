@@ -1,7 +1,7 @@
 deploy:
   provider: gcs
-  access_key_id: "$GC_KEY"
-  secret_access_key: "$GC_SECRET"
+  access_key_id: $GC_KEY
+  secret_access_key: $GC_SECRET
   bucket: datasets_nyu
   skip_cleanup: true
   acl: public-read
