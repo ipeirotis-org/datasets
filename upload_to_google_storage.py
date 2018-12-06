@@ -19,6 +19,6 @@ path = 'data'
 os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = 'client-secret-ipeirotis-gc.json'
 storage_client = storage.Client()
 
-datafiles = [f for f in listdir(path) if isfile(join('../data', f))]
-for d in datefiles:
+datafiles = sorted([f for f in listdir(path) if isfile(join(path, f))])
+for d in datafiles:
     upload_blob('datasets_nyu', join(path, d), d)
