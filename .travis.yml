@@ -1,25 +1,16 @@
 language: python
 python:
-  - "3.6"
-
-
-
-
-
+- '3.6'
 install:
-  - pip3 install -U jupyter
-  - pip3 install -U nbformat
-  - pip3 install -r requirements.txt
-
+- pip3 install -U jupyter
+- pip3 install -U nbformat
+- pip3 install -r requirements.txt
 deploy:
   provider: gcs
-  access_key_id: $GC_KEY
-  secret_access_key: $GC_SECRET
+  access_key_id: GOOGBOXODWG2DMTYSFTMJLP6
+  secret_access_key:
+    secure: OXKH9vs4eZUPzmpdr/KN3hmGtFjjiYuDqGWF4GRL5PT6ct1e5AwR/9bHeN/tALKH97G4+oBoTzzQwn1M1xbuuJWtbWDAf5Q9ei0v0kECdpxZZO4UX4cCT2fhDp+o6EBEQGwNArWp42gakum1c2xuiUS3kaeQAbqFrUYBX7m+/C7T9tqsD/xGHjn9VABLkhyY0hTivxaLkUujWvNc0jEkqK52fomZxGCpu/k2kR98qsF9ZgSJdK6TkS+zJlcm05RQDm1abMWsYy/L60eDKJoofuMNvNgFEFTZd67i/h7qadMrqklZmBtxq+1aACXejZ0HgZpq4pzbp7Aas6ODITwAt59jf8+arnDmAPaI5HgMQSZ8VsqBrbYAWSnnitQVkTFOFH08oMrcAzBymg7lITI5uj8JDmNK2ICX33ApT0h32ADiGcmbYOHB6gGNu7KtS6kxJIk4teC9TIzzd+WFd5RMoah1r6jtWUIveUzr7JpdlWTaDkxPvCsVKEF+DBN2n+9RdkvNHjJfTeLGaA5C8DlSGq45oQlVWDOR/A2UIffb9BmXyowEzBgGShjNbtLE7piNsDGEjIrS3yMhdAb7U2cNC3aP0U0qIPDb1Api5UEBPsppOH4RaJVJnre+yehpiJ1kne0JoLptTn74l/sNNnb7PoC917XxhofxSOhYhaIpg6U=
   bucket: datasets_nyu
-  skip_cleanup: true
-  acl: public-read
   local-dir: data
-env:
-  global:
-  - secure: eF6RI/N1p5rB1UYZIbcrpoUtK7eg4b/BqCmIPTe18IKoVBdMVZDa/HawTcWvR579c+x42q/dEvRuUNjd7FFv3+XBhOcifXzh1yFN3Q+odXFqhWdlLBfs5q02dfIZ2WLrR9ZsNpzAVzavw+X3EDAkGI4x/XykEQ0Ab/P7LU9e8+IJ/XNNAK+rA+Hm37jSURddOWtCJGK6VTByt7Uw7pjGreFSX+q9aU3H88WTwQBcz9aZhURg8w32Dx4MFeWclUX2+lPRstCV1guBTHM92r1ODmcbhKXxbT6IYfS/dCUFOW5gMQjB2hlLPLMGM3k3zn+qlXLm+RESeuU4YfiKJwYrxyrq5ltd0jChuNdy9/JHeEkUm9FShrrxOVaxBNvMtDGKW8E+jLFiJbS7hWTDtR0/+M8eu1Va0IA9fj7aYepilG+gwtjCREuWVt33MPj4qTh66Z7m9RZ5CVCFzA1e8NKKW+8DzNhMVPtk4Blqs43RuRJw+dLIMrDeyho6f0IonpkRvZwC+qeV2vQDQmvw8WDrnF739qGtt1yR3ykjheFRQNUy3ZUMy+njnz4KRAo1yQy5hO9H+q5Qy3EwMAE5eTw9WtSi4INPUNl19G8+RhaXbBO70GHD3RRmfbvXkc+95Vk3WvQoCDNDWEGHh8KxEtfs6lk+vko4MLp8gG6Bttd1ny4=
-  - secure: qWEGnpfEi7HwNtcIt1JwDaamJJeybHT9CHJHD7PZQirLzusV/8ApMYq2LtK3CVE6SvFvCFA8FxCzqGEz23zHpz6xT46PKKgGtNue9Yauwg4SB3tcrjYEssGlJ3T8ksZxFgd6kdESVPiGjQWPx2PA7PoR19fdUMzRxvHbyyyRZ1pBbhPry9qVGIWHhbJIbeDiCeLDjsW1nQMOS5XxxKBAcbSsf7Fx8+PhwsqlY5UzWnyfml8dBw5kUT2o60aq3VoiMPhLC4MHkeXWPWsJcmmxH3x2BKsEsM/GN4jOb+R+Dhamwr1zBeQ9LbP6S1AHwyzvFNlYwtI5vjxNCus7OpDxeq9bes75gwHeNxCJGHrqeMRWMm5Uiys+sS6g+Sa7BiyHTmpZ9KW55B+pDMLssPCdcrxiyiSB4z/fRFwIh/UEtvgSCqVv+CXHU2EuJQRyBYnm/M4mSRlxCgTQsQFqSmapKAKB/5qaGf+FvULFElk/l+K2paFxNDGTIEg+uGWoy9kWv/dsxZMpIq+amAwNQL/NT7Bt/mu70/v9VZZ25gq98Pf3+eQPYep62/XCkgeN7E9rPUDsBED04daizqcoIkr8pNvl1OnHYMhYwIWbAkr3fUQTeGBijgQskE6GP1bKqJIHXzUpC4lQNJ/15OL32/75NYN0x4pFgPDdpTtfb/yf9KE=
+  on:
+    repo: ipeirotis/datasets
