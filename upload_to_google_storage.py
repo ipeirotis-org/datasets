@@ -15,7 +15,7 @@ def upload_blob(bucket_name, source_file_name, destination_blob_name):
         source_file_name,
         destination_blob_name))
 
-path = '../data'
+path = 'data'
 os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = 'client-secret-ipeirotis-gc.json'
 storage_client = storage.Client()
 
