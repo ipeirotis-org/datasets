@@ -1,6 +1,20 @@
+[![Build Status](https://travis-ci.org/ipeirotis/datasets.svg?branch=master)](https://travis-ci.org/ipeirotis/datasets)
+
 # Datasets
 
-This repository contains some static datasets, plus code that retrieves and creates datasets from live sources.
+This repository contains the code that creates the Google Storage Bucket at https://console.cloud.google.com/storage/browser/datasets_nyu
+
+Other projects can then download or use the datasets from the source above.
+
+The code runs periodically to fetch new data from data sources that update over time. The scripts also perform data cleaning operations.
+
+
+## Setup
+
+* We follow the instructions at https://cloud.google.com/storage/docs/reference/libraries to fetch the client-secrets.json file
+* We encrypt the client-secrets.json file as described in https://docs.travis-ci.com/user/encrypting-files/
+* We use the code snippet at https://cloud.google.com/storage/docs/uploading-objects to upload the generated files and make them public
+* TODO: Figure out how to create the bucket with code, and make the bucket public with code.
 
 ## NYPD
 
@@ -17,6 +31,10 @@ This repository contains some static datasets, plus code that retrieves and crea
 * Output: MySQL database, SQLite db file
 
 ## Baseball
+
+## ERCOT data
+
+## Flight data
 
 
 
