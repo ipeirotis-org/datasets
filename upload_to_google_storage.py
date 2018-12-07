@@ -3,6 +3,7 @@ from google.cloud import storage
 from os import listdir
 from os.path import isfile, join, isdir
 
+
 def upload_blob(bucket_name, source_file_name, destination_blob_name):
     """Uploads a file to the bucket."""
     storage_client = storage.Client()

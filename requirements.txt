@@ -2,12 +2,14 @@
 google-cloud-storage 
 google-auth-oauthlib
 
-# Used in NYPD dataset
+# Used in NYPD notebook
 pandas
 numpy
+tqdm
 
 # Support for connecting to MySQL from Python3
 # https://github.com/PyMySQL/mysqlclient-python
+sqlalchemy
 mysqlclient
 
 # To remove the output from the notebooks
