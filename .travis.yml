@@ -3,6 +3,10 @@ language: python
 python:
     - '3.6'
 before_install:
+        - sudo fallocate -l 8G /swapfile
+        - sudo chmod 600 /swapfile
+        - sudo mkswap /swapfile
+        - sudo swapon /swapfile
     - sudo apt-get update
     - cat apt.txt | xargs sudo apt-get install -y
     - sudo pip3 install -U pip
