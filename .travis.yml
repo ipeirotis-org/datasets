@@ -5,12 +5,12 @@ before_install:
 - sudo apt-get update
 - sudo apt-get install -y python3-pip
 - sudo pip3 install -U pip
-- sudo apt-get install -y python3-mysqldb
 - suto apt-get install -y curl
+- sudo apt-get install -y sqlite3
+- sudo apt-get install -y libmysqlclient-dev
 - openssl aes-256-cbc -K $encrypted_823613407ecf_key -iv $encrypted_823613407ecf_iv
   -in client-secret-ipeirotis-gc.json.enc -out client-secret-ipeirotis-gc.json -d
 install:
-- sudo apt-get install -y sqlite3
 - pip3 install -U jupyter
 - pip3 install -U nbformat
 - pip3 install -r requirements.txt
