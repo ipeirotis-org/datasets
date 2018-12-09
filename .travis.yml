@@ -22,6 +22,8 @@ env:
 script:
         # Ensure that the MySQL connection is working
         - python3 notebooks/test_mysql.py
-        - travis_wait 50 python3 run_notebook.py notebooks/NYPD.ipynb
-        - mv notebooks/nypd.db data/
+        # - python3 run_notebook.py notebooks/NYPD.ipynb
+        # - mv notebooks/nypd.db data/
+        - python3 run_notebook.py notebooks/Accidents.ipynb
+        - mv notebooks/accidents.csv.gz data/
         - python3 upload_to_google_storage.py

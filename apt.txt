@@ -2,3 +2,4 @@ python3-pip
 curl
 sqlite
 libmysqlclient-dev
+python3-rtree
