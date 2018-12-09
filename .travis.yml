@@ -3,14 +3,14 @@ language: python
 python:
     - '3.6'
 before_install:
-        - sudo fallocate -l 8G /swapfile
-        - sudo chmod 600 /swapfile
-        - sudo mkswap /swapfile
-        - sudo swapon /swapfile
-    - sudo apt-get update
-    - cat apt.txt | xargs sudo apt-get install -y
-    - sudo pip3 install -U pip
-    - openssl aes-256-cbc -K $encrypted_823613407ecf_key -iv $encrypted_823613407ecf_iv
+- sudo fallocate -l 8G /swapfile
+- sudo chmod 600 /swapfile
+- sudo mkswap /swapfile
+- sudo swapon /swapfile
+- sudo apt-get update
+- cat apt.txt | xargs sudo apt-get install -y
+- sudo pip3 install -U pip
+- openssl aes-256-cbc -K $encrypted_823613407ecf_key -iv $encrypted_823613407ecf_iv
       -in client-secret-ipeirotis-gc.json.enc -out client-secret-ipeirotis-gc.json -d
 install:
     - pip3 install -U jupyter
