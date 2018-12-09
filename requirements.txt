@@ -15,9 +15,9 @@ mysqlclient
 # To remove the output from the notebooks
 nbstripout
 
-# Used in the Accidents dataset
+# Used in the Accidents notebook
 geopandas 
-descartes 
-pandas 
+descartes  
 matplotlib
 shapely
+rtree
