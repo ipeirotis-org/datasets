@@ -3,6 +3,7 @@ language: python
 python:
     - '3.6'
 before_install:
+# Create a swap file to avoid memory errors
 - sudo fallocate -l 8G /swapfile
 - sudo chmod 600 /swapfile
 - sudo mkswap /swapfile
@@ -23,8 +24,8 @@ env:
 script:
         # Ensure that the MySQL connection is working
         - python3 notebooks/test_mysql.py
-        # - python3 run_notebook.py notebooks/NYPD.ipynb
-        # - mv notebooks/nypd.db data/
+        - python3 run_notebook.py notebooks/NYPD.ipynb
+        - mv notebooks/nypd.db data/
         - python3 run_notebook.py notebooks/Accidents.ipynb
         - mv notebooks/accidents.csv.gz data/
         - python3 upload_to_google_storage.py
