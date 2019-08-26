@@ -1,5 +1,4 @@
 import pandas as pd
-import locale
 import logging
 
 def init():
@@ -10,9 +9,6 @@ def init():
     handler.setFormatter(formatter)
     logger.addHandler(handler)
     logger.setLevel(logging.DEBUG)
-    
-    # configure locale
-    locale.setlocale(locale.LC_TIME, "en_US.utf8")
 
 def readCSV():
     logging.info('Reading CSV...')
