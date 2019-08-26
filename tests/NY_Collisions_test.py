@@ -43,10 +43,15 @@ def checkColumns(data):
     return errors
 
 def main():
-    errors = False
     init()
     logging.info('Running Tests...')
     df = readCSV()
-    checkColumns(df)
+    errors = checkColumns(df)
+    if errors:
+        logging.error('Errors found.')
+        logging.info('Exiting with error code 1.')
+        exit(1)
+    logging.info('No errors found.')
+    logging.info('Exiting...')
 
 main()
