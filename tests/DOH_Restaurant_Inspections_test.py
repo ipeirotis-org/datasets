@@ -2,7 +2,6 @@ import pandas as pd
 import locale
 import logging
 
-errors = False
 def init():
     # configure logging
     logger = logging.getLogger()
@@ -24,7 +23,7 @@ def fixIndeces(data):
     data.columns = data.columns.map(lambda x: x.replace(' ', '_'))
 
 def checkColumns(data):
-    global errors
+    errors = False
     logging.info('***Checking if any columns have benn removed or added to the dataset.***')
     # Check if all columns needed are in the dataset
     VALUES = ['INSPECTION_TYPE','CUISINE_DESCRIPTION','INSPECTION_DATE',
@@ -44,9 +43,10 @@ def checkColumns(data):
         if (len(removed) != 0):
             logging.error('Columns removed from the dataset: ' + str(removed) + '.')
         errors = True
+    return errors
 
 def checkValues(data):
-    global errors
+    errors = False
     logging.info('***Check the validity of the values of the dataset we use***')
     testVals = ['Cycle Inspection / Initial Inspection', 'Cycle Inspection / Re-inspection']
     errors |= testValues(data, 'INSPECTION_TYPE', testVals)
@@ -64,6 +64,7 @@ def checkValues(data):
     errors |= testDates(data, 'INSPECTION_DATE')
     errors |= testDates(data, 'RECORD_DATE')
     errors |= testDates(data, 'GRADE_DATE')
+    return errors
     
 def testColumn(data, column):
     if not column in data.columns:
@@ -99,13 +100,13 @@ def testValues(data, column, values):
     return False
 
 def main():
-    global errors
+    errors = False
     logging.info('Running Tests...')
     init()
     df = readCSV()
     fixIndeces(df)
-    checkColumns(df)
-    checkValues(df)
+    errors |= checkColumns(df)
+    errors |= checkValues(df)
     if errors:
         logging.error('Errors found.')
         logging.info('Exiting with error code 1.')
