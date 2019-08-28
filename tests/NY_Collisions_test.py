@@ -46,6 +46,7 @@ def checkValues(data):
     errors = False
     errors |= testDates(data, 'DATE')
     errors |= testTime(data, 'TIME')
+    return errors
 
 def testColumn(data, column):
     if not column in data.columns:
@@ -81,10 +82,12 @@ def testDates(data, column):
     return False
 
 def main():
+    errors = False;
     init()
     logging.info('Running Tests...')
     df = readCSV()
-    errors = checkColumns(df)
+    errors |= checkColumns(df)
+    errors |= checkValues(df)
     if errors:
         logging.error('Errors found.')
         logging.info('Exiting with error code 1.')
