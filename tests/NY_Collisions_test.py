@@ -42,6 +42,44 @@ def checkColumns(data):
         errors = True
     return errors
 
+def checkValues(data):
+    errors = False
+    errors |= testDates(data, 'DATE')
+    errors |= testTime(data, 'TIME')
+
+def testColumn(data, column):
+    if not column in data.columns:
+        logging.error('Inconsistency found...')
+        logging.error('Column %s does not exists' % (column))
+        return True
+    return False
+
+def testTime(data, column):
+    logging.info('Checking time on column %s' % column)
+    if testColumn(data, column):
+        return True
+
+    try:
+        data[column] = pd.to_datetime(data[column], format='%H:%M')
+    except ValueError:
+        logging.error('Inconsistency found...')
+        logging.error('There are malformed time values in column %s' % (column))
+        return True
+    return False
+
+def testDates(data, column):
+    logging.info('Checking dates on column %s' % column)
+    if testColumn(data, column):
+        return True
+
+    try:
+        data[column] = pd.to_datetime(data[column], format='%m/%d/%Y')
+    except ValueError:
+        logging.error('Inconsistency found...')
+        logging.error('There are malformed date values in column %s' % (column))
+        return True
+    return False
+
 def main():
     init()
     logging.info('Running Tests...')
