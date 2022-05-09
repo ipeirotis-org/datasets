@@ -41,6 +41,8 @@ The code runs periodically to fetch new data from data sources that update over 
 
 From BTS: https://transtats.bts.gov/DL_SelectFields.aspx?gnoyr_VQ=FKF&QO_fu146_anzr=b4vtv0%20n0q%20Qr56v0n6v10%20f748rB
 
+We use the D1B1Ticket table.
+
 ## Misc files
 
 | Data Set                    | Source    | Static?   |
