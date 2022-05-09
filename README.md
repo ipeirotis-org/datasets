@@ -37,16 +37,16 @@ The code runs periodically to fetch new data from data sources that update over 
 
 ## ERCOT data
 
-## Flight data
+## Flight data: DB1BTicket
 
-
+From BTS: https://transtats.bts.gov/DL_SelectFields.aspx?gnoyr_VQ=FKF&QO_fu146_anzr=b4vtv0%20n0q%20Qr56v0n6v10%20f748rB
 
 ## Misc files
 
 | Data Set                    | Source    | Static?   |
-|-----------------------------+-----------+-----------|
+|-----------------------------|-----------|-----------|
 | acc-deaths.txt              |   | |
-| bank-names.txt             |   | |
+| bank-names.txt              |   | |
 | lake-huron.txt              |   | |
 | routes.csv                  |   | |
 | us-population.txt           |   | |
