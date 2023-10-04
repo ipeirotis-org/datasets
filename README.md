@@ -9,15 +9,6 @@ Other projects can then download or use the datasets from the source above.
 The code runs periodically to fetch new data from data sources that update over time. The scripts also perform data cleaning operations.
 
 
-## Setup
-
-* We follow the instructions at https://cloud.google.com/storage/docs/reference/libraries to fetch the client-secrets.json file
-* We encrypt the client-secrets.json file as described in https://docs.travis-ci.com/user/encrypting-files/
-* We use the code snippet at https://cloud.google.com/storage/docs/uploading-objects to upload the generated files and make them public
-
-* We use the `travis encrypt` to add the encrypted password for MYSQL (`travis encrypt MYSQL_PASSWORD='XXXXXXXXX' --add`)
-
-* TODO: Figure out how to create the bucket with code, and make the bucket public with code.
 
 ## NYPD
 
