@@ -182,18 +182,21 @@ def split_tsv_by_year(source_blob, target_bucket, project="nyu-datasets", temp_d
             existing_path = os.path.join(temp_dir, f"existing_{year}.tsv.gz")
             target_blob.download_to_filename(existing_path)
 
-            # Dedupe by RTRS_CONTROL_NUMBER (column 0 of canonical schema)
-            # using SQLite for disk-backed key tracking. An in-memory set
-            # of 10M+ 16-char IDs can exceed 1-2 GB RAM; SQLite spills to
-            # disk and stays bounded.
+            # Dedupe by (RTRS_CONTROL_NUMBER, VERSION_NUMBER) composite key.
+            # Using only RTRS_CONTROL_NUMBER would drop WRDS-published
+            # corrections where the same control number gets a new version.
+            # SQLite is disk-backed so the key set stays memory-bounded.
             import sqlite3
+            ctrl_idx = CANONICAL_COLUMNS.index('RTRS_CONTROL_NUMBER')  # 0
+            ver_idx = CANONICAL_COLUMNS.index('VERSION_NUMBER')        # 20
+
             db_path = os.path.join(temp_dir, f"dedup_{year}.sqlite")
             try:
                 merged_path = os.path.join(temp_dir, f"merged_{year}.tsv.gz")
                 conn = sqlite3.connect(db_path)
                 conn.execute("PRAGMA journal_mode=OFF")
                 conn.execute("PRAGMA synchronous=OFF")
-                conn.execute("CREATE TABLE seen (ctrl TEXT PRIMARY KEY)")
+                conn.execute("CREATE TABLE seen (ctrl TEXT, ver TEXT, PRIMARY KEY(ctrl, ver))")
                 cur = conn.cursor()
                 count = 0
 
@@ -203,13 +206,15 @@ def split_tsv_by_year(source_blob, target_bucket, project="nyu-datasets", temp_d
                         if skip_header:
                             f.readline()
                         for line in f:
-                            ctrl = line.split('\t', 1)[0]
+                            parts = line.rstrip('\n').split('\t')
+                            ctrl = parts[ctrl_idx] if len(parts) > ctrl_idx else ''
+                            ver = parts[ver_idx] if len(parts) > ver_idx else ''
                             try:
-                                cur.execute("INSERT INTO seen(ctrl) VALUES (?)", (ctrl,))
+                                cur.execute("INSERT INTO seen(ctrl, ver) VALUES (?, ?)", (ctrl, ver))
                                 out_handle.write(line)
                                 count += 1
                             except sqlite3.IntegrityError:
-                                pass  # duplicate
+                                pass  # duplicate (same ctrl AND same version)
 
                 with gzip.open(merged_path, 'wt') as out:
                     # Write header from existing file, then unique rows from both
@@ -218,7 +223,7 @@ def split_tsv_by_year(source_blob, target_bucket, project="nyu-datasets", temp_d
                     write_unique(existing_path, out, skip_header=True)
                     write_unique(year_path, out, skip_header=True)
                     conn.commit()
-                print(f"     Merged with dedup: {count:,} unique trades", flush=True)
+                print(f"     Merged with dedup: {count:,} unique (ctrl, version) trades", flush=True)
             finally:
                 conn.close()
                 if os.path.exists(db_path):

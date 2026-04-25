@@ -278,10 +278,15 @@ class Munidata:
         threshold = max(int(periods * min_overlap), min_periods)
 
         similarity = lambda x: x.corr(timeseries, min_periods=threshold)
+        # Drop self by label rather than positional slice [1:n+1]:
+        # the reference CUSIP isn't always at position 0 when correlations
+        # are tied or NaN (sparse bonds), which can drop a real peer and
+        # leak the reference into results.
         corr = (
             self.data.apply(similarity)
+            .drop(cusip, errors='ignore')
             .sort_values(ascending=False)
-            [1:n+1]
+            .head(n)
             .to_frame(name='Similarity')
         )
 
