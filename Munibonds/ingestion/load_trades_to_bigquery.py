@@ -161,7 +161,11 @@ class TradesDataLoader:
         return result
 
     def load_all_files(self, bucket="msrb_munibonds_dataset", overwrite=False):
-        """Load all TSV files from GCS. Returns True only if all files loaded."""
+        """Load all TSV files from GCS. Returns True only if all files loaded.
+
+        Idempotent: truncates the table on the first file load so re-running
+        rebuilds from current GCS state instead of duplicating data.
+        """
         files = self.list_source_files(bucket)
 
         if not files:
@@ -173,7 +177,8 @@ class TradesDataLoader:
             try:
                 gcs_uri = f"gs://{bucket}/{file_path}"
                 logger.info(f"[{i}/{len(files)}] {file_path}")
-                self.load_gcs_file(gcs_uri)
+                # Truncate on first file so re-runs are idempotent (don't duplicate)
+                self.load_gcs_file(gcs_uri, overwrite_partition=(i == 1))
             except Exception as e:
                 logger.error(f"Error loading {file_path}: {e}")
                 failures.append((file_path, str(e)))

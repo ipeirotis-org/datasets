@@ -166,6 +166,9 @@ class Munibonds:
         if isinstance(cusips, str):
             cusips = [cusips]
 
+        # NULL prices/yields are excluded by AVG/STDDEV automatically.
+        # Don't filter rows by DOLLAR_PRICE - that would drop trades with
+        # only YIELD data and bias yield-based aggregates.
         sql = f"""
         SELECT
             CUSIP,
@@ -177,7 +180,6 @@ class Munibonds:
             COUNT(*) AS NUM_TRADES
         FROM {self.table_ref}
         WHERE CUSIP IN UNNEST(@cusips)
-          AND DOLLAR_PRICE IS NOT NULL
           AND TRADE_TYPE_INDICATOR = 'D'
         GROUP BY CUSIP, TRADE_DATE
         ORDER BY CUSIP, TRADE_DATE
