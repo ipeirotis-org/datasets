@@ -87,9 +87,13 @@ class Munibonds:
                 MIN(COUPON) AS COUPON,
                 COUNT(*) AS NUM_TRADES,
                 COUNT(DISTINCT TRADE_DATE) AS NUM_DATES_TRADED,
+                -- DATE_DIFF excludes one endpoint, so the inclusive
+                -- span (MIN..MAX) is DATE_DIFF + 1 calendar days.
+                -- Without +1, a CUSIP traded 3 consecutive days yields
+                -- 3/2 = 1.5, exceeding 1.0.
                 SAFE_DIVIDE(
                     COUNT(DISTINCT TRADE_DATE),
-                    DATE_DIFF(MAX(TRADE_DATE), MIN(TRADE_DATE), DAY)
+                    DATE_DIFF(MAX(TRADE_DATE), MIN(TRADE_DATE), DAY) + 1
                 ) AS FRACTION_DAYS_TRADED
             FROM {self.table_ref}
             WHERE CUSIP IS NOT NULL

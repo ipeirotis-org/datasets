@@ -182,28 +182,47 @@ def split_tsv_by_year(source_blob, target_bucket, project="nyu-datasets", temp_d
             existing_path = os.path.join(temp_dir, f"existing_{year}.tsv.gz")
             target_blob.download_to_filename(existing_path)
 
-            # Dedupe by RTRS_CONTROL_NUMBER (column 0 of canonical schema).
-            # Without this, rerunning split_by_year.py duplicates trades.
-            merged_path = os.path.join(temp_dir, f"merged_{year}.tsv.gz")
-            seen_ctrl = set()
-            with gzip.open(merged_path, 'wt') as out:
-                # Stream existing file - keep first occurrence of each RTRS_CONTROL_NUMBER
-                with gzip.open(existing_path, 'rt') as f:
-                    out.write(f.readline())  # header
-                    for line in f:
-                        ctrl = line.split('\t', 1)[0]
-                        if ctrl not in seen_ctrl:
-                            seen_ctrl.add(ctrl)
-                            out.write(line)
-                # Append new rows - skip header, skip already-seen control numbers
-                with gzip.open(year_path, 'rt') as f:
-                    f.readline()  # skip header
-                    for line in f:
-                        ctrl = line.split('\t', 1)[0]
-                        if ctrl not in seen_ctrl:
-                            seen_ctrl.add(ctrl)
-                            out.write(line)
-            print(f"     Merged with dedup: {len(seen_ctrl):,} unique trades", flush=True)
+            # Dedupe by RTRS_CONTROL_NUMBER (column 0 of canonical schema)
+            # using SQLite for disk-backed key tracking. An in-memory set
+            # of 10M+ 16-char IDs can exceed 1-2 GB RAM; SQLite spills to
+            # disk and stays bounded.
+            import sqlite3
+            db_path = os.path.join(temp_dir, f"dedup_{year}.sqlite")
+            try:
+                merged_path = os.path.join(temp_dir, f"merged_{year}.tsv.gz")
+                conn = sqlite3.connect(db_path)
+                conn.execute("PRAGMA journal_mode=OFF")
+                conn.execute("PRAGMA synchronous=OFF")
+                conn.execute("CREATE TABLE seen (ctrl TEXT PRIMARY KEY)")
+                cur = conn.cursor()
+                count = 0
+
+                def write_unique(in_path, out_handle, skip_header):
+                    nonlocal count
+                    with gzip.open(in_path, 'rt') as f:
+                        if skip_header:
+                            f.readline()
+                        for line in f:
+                            ctrl = line.split('\t', 1)[0]
+                            try:
+                                cur.execute("INSERT INTO seen(ctrl) VALUES (?)", (ctrl,))
+                                out_handle.write(line)
+                                count += 1
+                            except sqlite3.IntegrityError:
+                                pass  # duplicate
+
+                with gzip.open(merged_path, 'wt') as out:
+                    # Write header from existing file, then unique rows from both
+                    with gzip.open(existing_path, 'rt') as f:
+                        out.write(f.readline())
+                    write_unique(existing_path, out, skip_header=True)
+                    write_unique(year_path, out, skip_header=True)
+                    conn.commit()
+                print(f"     Merged with dedup: {count:,} unique trades", flush=True)
+            finally:
+                conn.close()
+                if os.path.exists(db_path):
+                    os.remove(db_path)
 
             os.remove(existing_path)
             os.remove(year_path)
