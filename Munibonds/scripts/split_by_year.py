@@ -1,0 +1,407 @@
+#!/usr/bin/env python3
+"""
+Split multi-year MSRB TSV.GZ files into one file per year.
+
+Reads from: gs://msrb_munibonds_dataset/raw_wrds/msrb_*.tsv.gz
+Writes to: gs://msrb_munibonds_dataset/raw_wrds/trades_YYYY.tsv.gz
+
+Handles different schemas across files:
+- Some files have lowercase columns, some uppercase
+- Some have extra columns (like cusip6)
+- Different column orderings
+
+All output files use the same canonical column order (uppercase, 24 columns).
+
+Usage:
+    export GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json
+    python3 split_by_year.py [--delete-source]
+"""
+
+import argparse
+import gzip
+import os
+import sys
+import tempfile
+from collections import defaultdict
+from pathlib import Path
+
+from google.cloud import storage
+
+
+# Canonical column order (matches BigQuery schema)
+CANONICAL_COLUMNS = [
+    'RTRS_CONTROL_NUMBER',
+    'TRADE_TYPE_INDICATOR',
+    'CUSIP',
+    'SECURITY_DESCRIPTION',
+    'DATED_DATE',
+    'COUPON',
+    'MATURITY_DATE',
+    'WHEN_ISSUED_INDICATOR',
+    'ASSUMED_SETTLEMENT_DATE',
+    'TRADE_DATE',
+    'TIME_OF_TRADE',
+    'SETTLEMENT_DATE',
+    'PAR_TRADED',
+    'DOLLAR_PRICE',
+    'YIELD',
+    'BROKERS_BROKER_INDICATOR',
+    'WEIGHTED_PRICE_INDICATOR',
+    'OFFER_PRICE_TAKEDOWN_INDICATOR',
+    'RTRS_PUBLISH_DATE',
+    'RTRS_PUBLISH_TIME',
+    'VERSION_NUMBER',
+    'UV_DOLLAR_PRICE_INDICATOR',
+    'ATS_INDICATOR',
+    'NTBC_INDICATOR',
+]
+
+
+def build_column_mapping(file_columns):
+    """
+    Build mapping from canonical position to file column index.
+    Returns: list where output[i] = file_index for CANONICAL_COLUMNS[i], or None if missing.
+    """
+    upper_to_idx = {col.upper(): i for i, col in enumerate(file_columns)}
+    mapping = []
+    for canonical_col in CANONICAL_COLUMNS:
+        mapping.append(upper_to_idx.get(canonical_col))
+    return mapping
+
+
+def split_tsv_by_year(source_blob, target_bucket, project="nyu-datasets", temp_dir=None):
+    """Stream a multi-year TSV.GZ file and split by year, normalizing columns."""
+    print(f"\n📥 Processing {source_blob.name}...", flush=True)
+    size_mb = source_blob.size / (1024 * 1024) if source_blob.size else 0
+    print(f"   Size: {size_mb:.1f} MB", flush=True)
+
+    # Download
+    local_file = os.path.join(temp_dir, Path(source_blob.name).name)
+    print(f"   Downloading...", flush=True)
+    source_blob.download_to_filename(local_file)
+    print(f"   ✓ Downloaded", flush=True)
+
+    try:
+        return _split_downloaded_file(local_file, source_blob, target_bucket, temp_dir)
+    finally:
+        # Always clean up the downloaded source file, even if processing
+        # raised or returned False early. main() reuses a single temp dir
+        # across all blobs, so leaks would exhaust disk.
+        if os.path.exists(local_file):
+            os.remove(local_file)
+
+
+def _split_downloaded_file(local_file, source_blob, target_bucket, temp_dir):
+    """Split an already-downloaded gzipped TSV by year and upload.
+
+    Wraps all per-year file handles and intermediate paths in a try/finally
+    so an unexpected exception (e.g. gzip decode error) doesn't leak open
+    writers or partial trades_YYYY.tsv.gz files into the shared temp dir.
+    """
+    year_files = {}
+    year_paths = {}
+    year_counts = defaultdict(int)
+    rows_processed = 0
+    upload_succeeded = False
+
+    print(f"   Splitting by year...", flush=True)
+    canonical_header = '\t'.join(CANONICAL_COLUMNS)
+
+    try:
+        return _do_split(
+            local_file, source_blob, target_bucket, temp_dir,
+            year_files, year_paths, year_counts,
+            canonical_header,
+        )
+    finally:
+        # Close any still-open year-file writers, then sweep partial year_paths.
+        # On the success path the upload loop already closed and removed them,
+        # so these are no-ops; on any failure path we recover the disk space.
+        for fh in year_files.values():
+            try:
+                fh.close()
+            except Exception:
+                pass
+        for path in year_paths.values():
+            if os.path.exists(path):
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
+
+
+def _do_split(local_file, source_blob, target_bucket, temp_dir,
+              year_files, year_paths, year_counts, canonical_header):
+    """Inner split implementation. State dicts are passed in so the caller's
+    finally block can clean them up regardless of how this returns/raises."""
+    rows_processed = 0
+
+    with gzip.open(local_file, 'rt') as f:
+        # Read header and build column mapping
+        header = f.readline().strip()
+        file_columns = header.split('\t')
+        column_map = build_column_mapping(file_columns)
+
+        # Find indices in source
+        try:
+            trade_date_canonical_idx = CANONICAL_COLUMNS.index('TRADE_DATE')
+        except ValueError:
+            print(f"   ✗ TRADE_DATE not in canonical schema", flush=True)
+            return False
+
+        trade_date_src_idx = column_map[trade_date_canonical_idx]
+        if trade_date_src_idx is None:
+            print(f"   ✗ TRADE_DATE column not found in source: {file_columns}", flush=True)
+            return False
+
+        print(f"   Source has {len(file_columns)} columns; TRADE_DATE at index {trade_date_src_idx}", flush=True)
+        missing = [c for c, m in zip(CANONICAL_COLUMNS, column_map) if m is None]
+        extra = [c for c in file_columns if c.upper() not in [cc.upper() for cc in CANONICAL_COLUMNS]]
+        if missing:
+            print(f"   Missing columns (will be empty): {missing}", flush=True)
+        if extra:
+            print(f"   Extra columns (will be dropped): {extra}", flush=True)
+
+        # Process each line
+        for line in f:
+            try:
+                parts = line.rstrip('\n').split('\t')
+                if len(parts) <= trade_date_src_idx:
+                    continue
+
+                trade_date = parts[trade_date_src_idx].strip()
+                if not trade_date or len(trade_date) < 4:
+                    continue
+
+                # Parse year (YYYY/MM/DD format)
+                year_str = trade_date[:4]
+                if not year_str.isdigit():
+                    continue
+                year = int(year_str)
+                if year < 1990 or year > 2100:
+                    continue
+
+                # Reorder columns to canonical order
+                normalized_parts = []
+                for canonical_idx, src_idx in enumerate(column_map):
+                    if src_idx is not None and src_idx < len(parts):
+                        normalized_parts.append(parts[src_idx])
+                    else:
+                        normalized_parts.append('')
+                normalized_line = '\t'.join(normalized_parts) + '\n'
+
+                # Open year file if needed
+                if year not in year_files:
+                    year_path = os.path.join(temp_dir, f"trades_{year}.tsv.gz")
+                    year_paths[year] = year_path
+                    year_files[year] = gzip.open(year_path, 'wt')
+                    year_files[year].write(canonical_header + '\n')
+                    print(f"     Started year file: trades_{year}.tsv.gz", flush=True)
+
+                year_files[year].write(normalized_line)
+                year_counts[year] += 1
+                rows_processed += 1
+
+                if rows_processed % 1_000_000 == 0:
+                    print(f"     ...processed {rows_processed:,} rows so far", flush=True)
+
+            except (ValueError, IndexError):
+                continue
+
+    print(f"\n   Total rows processed: {rows_processed:,}", flush=True)
+    print(f"   Years found: {sorted(year_counts.keys())}", flush=True)
+
+    for year, fh in year_files.items():
+        fh.close()
+        print(f"     trades_{year}.tsv.gz: {year_counts[year]:,} rows", flush=True)
+
+    # Refuse to mark success on a zero-output split. Without this, --delete-source
+    # would silently delete the multi-year file even though no trades_YYYY output
+    # was produced (e.g. malformed input or unexpected schema drift).
+    if rows_processed == 0 or not year_paths:
+        print(f"   ✗ No rows produced from this source - refusing to mark success "
+              f"(rows={rows_processed}, year_files={len(year_paths)})", flush=True)
+        return False
+
+    # Upload year files (merging with existing if present).
+    # Wrap in try/finally so any remaining year_paths are cleaned up if upload
+    # (or merge) raises. main() reuses one TemporaryDirectory across blobs,
+    # so leftover .tsv.gz files could exhaust temp space for subsequent runs.
+    print(f"\n   Uploading year files to gs://{target_bucket.name}/raw_wrds/...", flush=True)
+
+    try:
+        for year in sorted(year_paths.keys()):
+            year_path = year_paths[year]
+            target_path = f"raw_wrds/trades_{year}.tsv.gz"
+            target_blob = target_bucket.blob(target_path)
+
+            # Merge with existing if needed
+            if target_blob.exists():
+                print(f"     Merging with existing trades_{year}.tsv.gz...", flush=True)
+                existing_path = os.path.join(temp_dir, f"existing_{year}.tsv.gz")
+                target_blob.download_to_filename(existing_path)
+
+                # Dedupe by (RTRS_CONTROL_NUMBER, VERSION_NUMBER) composite key.
+                # Using only RTRS_CONTROL_NUMBER would drop WRDS-published
+                # corrections where the same control number gets a new version.
+                # SQLite is disk-backed so the key set stays memory-bounded.
+                import sqlite3
+                ctrl_idx = CANONICAL_COLUMNS.index('RTRS_CONTROL_NUMBER')  # 0
+                ver_idx = CANONICAL_COLUMNS.index('VERSION_NUMBER')        # 20
+
+                db_path = os.path.join(temp_dir, f"dedup_{year}.sqlite")
+                merged_path = os.path.join(temp_dir, f"merged_{year}.tsv.gz")
+                conn = None
+                try:
+                    conn = sqlite3.connect(db_path)
+                    conn.execute("PRAGMA journal_mode=OFF")
+                    conn.execute("PRAGMA synchronous=OFF")
+                    conn.execute("CREATE TABLE seen (ctrl TEXT, ver TEXT, PRIMARY KEY(ctrl, ver))")
+                    cur = conn.cursor()
+                    count = 0
+
+                    def write_unique(in_path, out_handle, skip_header):
+                        nonlocal count
+                        with gzip.open(in_path, 'rt') as f:
+                            if skip_header:
+                                f.readline()
+                            for line in f:
+                                parts = line.rstrip('\n').split('\t')
+                                ctrl = parts[ctrl_idx] if len(parts) > ctrl_idx else ''
+                                ver = parts[ver_idx] if len(parts) > ver_idx else ''
+                                try:
+                                    cur.execute("INSERT INTO seen(ctrl, ver) VALUES (?, ?)", (ctrl, ver))
+                                    out_handle.write(line)
+                                    count += 1
+                                except sqlite3.IntegrityError:
+                                    pass  # duplicate (same ctrl AND same version)
+
+                    with gzip.open(merged_path, 'wt') as out:
+                        # Write header from existing file, then unique rows from both
+                        with gzip.open(existing_path, 'rt') as f:
+                            out.write(f.readline())
+                        write_unique(existing_path, out, skip_header=True)
+                        write_unique(year_path, out, skip_header=True)
+                        conn.commit()
+                    print(f"     Merged with dedup: {count:,} unique (ctrl, version) trades", flush=True)
+
+                    # Atomically swap: remove originals, replace year_path with merged
+                    os.remove(existing_path)
+                    os.remove(year_path)
+                    os.rename(merged_path, year_path)
+                finally:
+                    # Always clean up sqlite db and partially-written merged file,
+                    # whether merge succeeded or raised mid-operation.
+                    if conn is not None:
+                        conn.close()
+                    for path in (db_path, merged_path, existing_path):
+                        if os.path.exists(path):
+                            try:
+                                os.remove(path)
+                            except OSError:
+                                pass
+
+            size_mb = os.path.getsize(year_path) / (1024 * 1024)
+            target_blob.upload_from_filename(year_path)
+            print(f"     ✓ Uploaded trades_{year}.tsv.gz ({size_mb:.1f} MB)", flush=True)
+
+            os.remove(year_path)
+    finally:
+        # If anything raised mid-loop, sweep remaining year_paths so a failed
+        # blob doesn't accumulate multi-GB intermediates in the shared temp dir.
+        for path in year_paths.values():
+            if os.path.exists(path):
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
+
+    # Note: source local_file cleanup is handled by the caller's finally block
+    print(f"   ✓ Cleaned up local files", flush=True)
+    return True
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Split multi-year MSRB files into yearly files")
+    parser.add_argument("--bucket", default="msrb_munibonds_dataset")
+    parser.add_argument("--project", default="nyu-datasets")
+    parser.add_argument("--delete-source", action="store_true")
+    parser.add_argument("--source-pattern", default="raw_wrds/msrb_")
+    parser.add_argument("--only", help="Process only files matching this substring (e.g. '2020_2025')")
+
+    args = parser.parse_args()
+
+    print("╔════════════════════════════════════════════════════════════════╗", flush=True)
+    print("║  Split MSRB Multi-Year Files into Yearly Files                ║", flush=True)
+    print("╚════════════════════════════════════════════════════════════════╝\n", flush=True)
+
+    print("[1/4] Setting up authentication...", flush=True)
+    if not os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"):
+        print("✗ GOOGLE_APPLICATION_CREDENTIALS not set", flush=True)
+        sys.exit(1)
+    client = storage.Client(project=args.project)
+    print(f"✓ Authenticated\n", flush=True)
+
+    print("[2/4] Connecting to bucket...", flush=True)
+    bucket = client.bucket(args.bucket)
+    if not bucket.exists():
+        print(f"✗ Bucket {args.bucket} not found", flush=True)
+        sys.exit(1)
+    print(f"✓ Connected to gs://{args.bucket}/\n", flush=True)
+
+    print("[3/4] Finding multi-year source files...", flush=True)
+    all_blobs = list(bucket.list_blobs(prefix=args.source_pattern))
+    multi_year_blobs = [b for b in all_blobs if b.name.endswith('.tsv.gz')
+                       and 'msrb_' in b.name and 'trades_' not in b.name]
+
+    if args.only:
+        multi_year_blobs = [b for b in multi_year_blobs if args.only in b.name]
+
+    if not multi_year_blobs:
+        print(f"✗ No matching multi-year files found", flush=True)
+        sys.exit(1)
+
+    print(f"✓ Found {len(multi_year_blobs)} files to process:", flush=True)
+    for blob in multi_year_blobs:
+        size_mb = blob.size / (1024 * 1024) if blob.size else 0
+        print(f"  • {blob.name} ({size_mb:.1f} MB)", flush=True)
+
+    print(f"\n[4/4] Splitting files by year...", flush=True)
+    with tempfile.TemporaryDirectory() as temp_dir:
+        successful = []
+        failed = []
+
+        for blob in multi_year_blobs:
+            try:
+                if split_tsv_by_year(blob, bucket, args.project, temp_dir=temp_dir):
+                    successful.append(blob.name)
+                else:
+                    failed.append(blob.name)
+            except Exception as e:
+                print(f"   ✗ Error processing {blob.name}: {e}", flush=True)
+                import traceback
+                traceback.print_exc()
+                failed.append(blob.name)
+
+    print(f"\n{'='*70}", flush=True)
+    print(f"Splitting Complete!", flush=True)
+    print(f"  Successful: {len(successful)}/{len(multi_year_blobs)}", flush=True)
+    print(f"  Failed: {len(failed)}", flush=True)
+
+    if args.delete_source and not failed:
+        print(f"\nDeleting original multi-year files...", flush=True)
+        for blob in multi_year_blobs:
+            blob.delete()
+            print(f"  ✓ Deleted {blob.name}", flush=True)
+
+    print(f"\nFinal trades files in gs://{args.bucket}/raw_wrds/:", flush=True)
+    final_blobs = list(bucket.list_blobs(prefix="raw_wrds/trades_"))
+    for blob in sorted(final_blobs, key=lambda x: x.name):
+        size_mb = blob.size / (1024 * 1024) if blob.size else 0
+        print(f"  • {blob.name} ({size_mb:.1f} MB)", flush=True)
+
+    sys.exit(0 if not failed else 1)
+
+
+if __name__ == "__main__":
+    main()
