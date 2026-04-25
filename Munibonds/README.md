@@ -225,6 +225,10 @@ The `trades_typed` view handles both date formats via `COALESCE(SAFE.PARSE_DATE(
 | `ingestion/bigquery_schema.sql` | Schema DDL (informational) |
 | `scripts/migrate_direct.py` | Copy files between GCS buckets (used for migration) |
 | `scripts/split_by_year.py` | Split multi-year files into yearly files |
+| `notebooks/01_yield_curve_visualization.ipynb` | Heatmap, contour, and 3D surface of the yield curve over time |
+| `notebooks/02_descriptive_analysis.ipynb` | Per-CUSIP activity stats and active-universe selection |
+| `notebooks/03_baseline_pricing.ipynb` | First/best/last price predictors with MAE benchmarking |
+| `notebooks/04_cusip_statistics.ipynb` | Materializes `cusip_statistics` BigQuery view |
 | `scripts/SERVICE_ACCOUNT_SETUP.md` | Service account creation/management |
 
 ## Sources
