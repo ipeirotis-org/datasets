@@ -180,85 +180,106 @@ def _split_downloaded_file(local_file, source_blob, target_bucket, temp_dir):
         fh.close()
         print(f"     trades_{year}.tsv.gz: {year_counts[year]:,} rows", flush=True)
 
-    # Upload year files (merging with existing if present)
+    # Refuse to mark success on a zero-output split. Without this, --delete-source
+    # would silently delete the multi-year file even though no trades_YYYY output
+    # was produced (e.g. malformed input or unexpected schema drift).
+    if rows_processed == 0 or not year_paths:
+        print(f"   ✗ No rows produced from this source - refusing to mark success "
+              f"(rows={rows_processed}, year_files={len(year_paths)})", flush=True)
+        return False
+
+    # Upload year files (merging with existing if present).
+    # Wrap in try/finally so any remaining year_paths are cleaned up if upload
+    # (or merge) raises. main() reuses one TemporaryDirectory across blobs,
+    # so leftover .tsv.gz files could exhaust temp space for subsequent runs.
     print(f"\n   Uploading year files to gs://{target_bucket.name}/raw_wrds/...", flush=True)
 
-    for year in sorted(year_paths.keys()):
-        year_path = year_paths[year]
-        target_path = f"raw_wrds/trades_{year}.tsv.gz"
-        target_blob = target_bucket.blob(target_path)
+    try:
+        for year in sorted(year_paths.keys()):
+            year_path = year_paths[year]
+            target_path = f"raw_wrds/trades_{year}.tsv.gz"
+            target_blob = target_bucket.blob(target_path)
 
-        # Merge with existing if needed
-        if target_blob.exists():
-            print(f"     Merging with existing trades_{year}.tsv.gz...", flush=True)
-            existing_path = os.path.join(temp_dir, f"existing_{year}.tsv.gz")
-            target_blob.download_to_filename(existing_path)
+            # Merge with existing if needed
+            if target_blob.exists():
+                print(f"     Merging with existing trades_{year}.tsv.gz...", flush=True)
+                existing_path = os.path.join(temp_dir, f"existing_{year}.tsv.gz")
+                target_blob.download_to_filename(existing_path)
 
-            # Dedupe by (RTRS_CONTROL_NUMBER, VERSION_NUMBER) composite key.
-            # Using only RTRS_CONTROL_NUMBER would drop WRDS-published
-            # corrections where the same control number gets a new version.
-            # SQLite is disk-backed so the key set stays memory-bounded.
-            import sqlite3
-            ctrl_idx = CANONICAL_COLUMNS.index('RTRS_CONTROL_NUMBER')  # 0
-            ver_idx = CANONICAL_COLUMNS.index('VERSION_NUMBER')        # 20
+                # Dedupe by (RTRS_CONTROL_NUMBER, VERSION_NUMBER) composite key.
+                # Using only RTRS_CONTROL_NUMBER would drop WRDS-published
+                # corrections where the same control number gets a new version.
+                # SQLite is disk-backed so the key set stays memory-bounded.
+                import sqlite3
+                ctrl_idx = CANONICAL_COLUMNS.index('RTRS_CONTROL_NUMBER')  # 0
+                ver_idx = CANONICAL_COLUMNS.index('VERSION_NUMBER')        # 20
 
-            db_path = os.path.join(temp_dir, f"dedup_{year}.sqlite")
-            merged_path = os.path.join(temp_dir, f"merged_{year}.tsv.gz")
-            conn = None
-            try:
-                conn = sqlite3.connect(db_path)
-                conn.execute("PRAGMA journal_mode=OFF")
-                conn.execute("PRAGMA synchronous=OFF")
-                conn.execute("CREATE TABLE seen (ctrl TEXT, ver TEXT, PRIMARY KEY(ctrl, ver))")
-                cur = conn.cursor()
-                count = 0
+                db_path = os.path.join(temp_dir, f"dedup_{year}.sqlite")
+                merged_path = os.path.join(temp_dir, f"merged_{year}.tsv.gz")
+                conn = None
+                try:
+                    conn = sqlite3.connect(db_path)
+                    conn.execute("PRAGMA journal_mode=OFF")
+                    conn.execute("PRAGMA synchronous=OFF")
+                    conn.execute("CREATE TABLE seen (ctrl TEXT, ver TEXT, PRIMARY KEY(ctrl, ver))")
+                    cur = conn.cursor()
+                    count = 0
 
-                def write_unique(in_path, out_handle, skip_header):
-                    nonlocal count
-                    with gzip.open(in_path, 'rt') as f:
-                        if skip_header:
-                            f.readline()
-                        for line in f:
-                            parts = line.rstrip('\n').split('\t')
-                            ctrl = parts[ctrl_idx] if len(parts) > ctrl_idx else ''
-                            ver = parts[ver_idx] if len(parts) > ver_idx else ''
+                    def write_unique(in_path, out_handle, skip_header):
+                        nonlocal count
+                        with gzip.open(in_path, 'rt') as f:
+                            if skip_header:
+                                f.readline()
+                            for line in f:
+                                parts = line.rstrip('\n').split('\t')
+                                ctrl = parts[ctrl_idx] if len(parts) > ctrl_idx else ''
+                                ver = parts[ver_idx] if len(parts) > ver_idx else ''
+                                try:
+                                    cur.execute("INSERT INTO seen(ctrl, ver) VALUES (?, ?)", (ctrl, ver))
+                                    out_handle.write(line)
+                                    count += 1
+                                except sqlite3.IntegrityError:
+                                    pass  # duplicate (same ctrl AND same version)
+
+                    with gzip.open(merged_path, 'wt') as out:
+                        # Write header from existing file, then unique rows from both
+                        with gzip.open(existing_path, 'rt') as f:
+                            out.write(f.readline())
+                        write_unique(existing_path, out, skip_header=True)
+                        write_unique(year_path, out, skip_header=True)
+                        conn.commit()
+                    print(f"     Merged with dedup: {count:,} unique (ctrl, version) trades", flush=True)
+
+                    # Atomically swap: remove originals, replace year_path with merged
+                    os.remove(existing_path)
+                    os.remove(year_path)
+                    os.rename(merged_path, year_path)
+                finally:
+                    # Always clean up sqlite db and partially-written merged file,
+                    # whether merge succeeded or raised mid-operation.
+                    if conn is not None:
+                        conn.close()
+                    for path in (db_path, merged_path, existing_path):
+                        if os.path.exists(path):
                             try:
-                                cur.execute("INSERT INTO seen(ctrl, ver) VALUES (?, ?)", (ctrl, ver))
-                                out_handle.write(line)
-                                count += 1
-                            except sqlite3.IntegrityError:
-                                pass  # duplicate (same ctrl AND same version)
+                                os.remove(path)
+                            except OSError:
+                                pass
 
-                with gzip.open(merged_path, 'wt') as out:
-                    # Write header from existing file, then unique rows from both
-                    with gzip.open(existing_path, 'rt') as f:
-                        out.write(f.readline())
-                    write_unique(existing_path, out, skip_header=True)
-                    write_unique(year_path, out, skip_header=True)
-                    conn.commit()
-                print(f"     Merged with dedup: {count:,} unique (ctrl, version) trades", flush=True)
+            size_mb = os.path.getsize(year_path) / (1024 * 1024)
+            target_blob.upload_from_filename(year_path)
+            print(f"     ✓ Uploaded trades_{year}.tsv.gz ({size_mb:.1f} MB)", flush=True)
 
-                # Atomically swap: remove originals, replace year_path with merged
-                os.remove(existing_path)
-                os.remove(year_path)
-                os.rename(merged_path, year_path)
-            finally:
-                # Always clean up sqlite db and partially-written merged file,
-                # whether merge succeeded or raised mid-operation.
-                if conn is not None:
-                    conn.close()
-                for path in (db_path, merged_path, existing_path):
-                    if os.path.exists(path):
-                        try:
-                            os.remove(path)
-                        except OSError:
-                            pass
-
-        size_mb = os.path.getsize(year_path) / (1024 * 1024)
-        target_blob.upload_from_filename(year_path)
-        print(f"     ✓ Uploaded trades_{year}.tsv.gz ({size_mb:.1f} MB)", flush=True)
-
-        os.remove(year_path)
+            os.remove(year_path)
+    finally:
+        # If anything raised mid-loop, sweep remaining year_paths so a failed
+        # blob doesn't accumulate multi-GB intermediates in the shared temp dir.
+        for path in year_paths.values():
+            if os.path.exists(path):
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
 
     # Note: source local_file cleanup is handled by the caller's finally block
     print(f"   ✓ Cleaned up local files", flush=True)
