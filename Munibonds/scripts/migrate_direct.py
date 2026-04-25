@@ -99,7 +99,7 @@ def migrate_data(source_project="ipeirotis-hrd",
     print("\nNext steps:")
     print("  1. Verify files: gcloud storage ls gs://msrb_munibonds_dataset/raw_wrds/")
     print("  2. Split by year: python3 scripts/split_by_year.py")
-    print("  3. Load to BigQuery: python3 1_ingestion/load_trades_to_bigquery.py")
+    print("  3. Load to BigQuery: python3 ingestion/load_trades_to_bigquery.py --overwrite")
 
     return True
 
