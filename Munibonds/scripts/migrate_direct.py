@@ -64,6 +64,22 @@ def migrate_data(source_project="ipeirotis-hrd",
         print("✗ No TSV.GZ files found!")
         return False
 
+    # Detect basename collisions before copying. Flattening every source path
+    # to raw_wrds/{basename} would silently overwrite files with the same name
+    # in different folders, causing data loss.
+    from collections import Counter
+    basename_counts = Counter(Path(b.name).name for b in tsv_files)
+    collisions = {name: cnt for name, cnt in basename_counts.items() if cnt > 1}
+    if collisions:
+        print("✗ Basename collisions detected — refusing to copy:")
+        for name, cnt in collisions.items():
+            print(f"    {name}: {cnt} source blobs share this basename:")
+            for b in tsv_files:
+                if Path(b.name).name == name:
+                    print(f"      - {b.name}")
+        print("Resolve by giving these files distinct names in the source bucket.")
+        return False
+
     # Copy files
     print(f"\n[3/4] Copying files to gs://{target_bucket_name}/raw_wrds/\n")
 

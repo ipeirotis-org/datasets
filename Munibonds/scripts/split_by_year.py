@@ -92,14 +92,49 @@ def split_tsv_by_year(source_blob, target_bucket, project="nyu-datasets", temp_d
 
 
 def _split_downloaded_file(local_file, source_blob, target_bucket, temp_dir):
-    """Split an already-downloaded gzipped TSV by year and upload."""
+    """Split an already-downloaded gzipped TSV by year and upload.
+
+    Wraps all per-year file handles and intermediate paths in a try/finally
+    so an unexpected exception (e.g. gzip decode error) doesn't leak open
+    writers or partial trades_YYYY.tsv.gz files into the shared temp dir.
+    """
     year_files = {}
     year_paths = {}
     year_counts = defaultdict(int)
     rows_processed = 0
+    upload_succeeded = False
 
     print(f"   Splitting by year...", flush=True)
     canonical_header = '\t'.join(CANONICAL_COLUMNS)
+
+    try:
+        return _do_split(
+            local_file, source_blob, target_bucket, temp_dir,
+            year_files, year_paths, year_counts,
+            canonical_header,
+        )
+    finally:
+        # Close any still-open year-file writers, then sweep partial year_paths.
+        # On the success path the upload loop already closed and removed them,
+        # so these are no-ops; on any failure path we recover the disk space.
+        for fh in year_files.values():
+            try:
+                fh.close()
+            except Exception:
+                pass
+        for path in year_paths.values():
+            if os.path.exists(path):
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
+
+
+def _do_split(local_file, source_blob, target_bucket, temp_dir,
+              year_files, year_paths, year_counts, canonical_header):
+    """Inner split implementation. State dicts are passed in so the caller's
+    finally block can clean them up regardless of how this returns/raises."""
+    rows_processed = 0
 
     with gzip.open(local_file, 'rt') as f:
         # Read header and build column mapping
