@@ -287,14 +287,18 @@ class TradesDataLoader:
         FROM `{self.table_ref}`
         """
 
-        view = bigquery.Table(view_id)
-        view.view_query = view_query
-        view.description = "Typed view of trades with parsed DATE/TIME columns from STRING raw"
-
+        # Atomic CREATE OR REPLACE VIEW. Previous delete-then-create left
+        # the dataset without the view if creation failed mid-run, converting
+        # a recoverable refresh into an outage for downstream queries.
+        ddl = f"""
+        CREATE OR REPLACE VIEW `{view_id}`
+        OPTIONS(description="Typed view of trades with parsed DATE/TIME columns from STRING raw")
+        AS
+        {view_query.strip()}
+        """
         try:
-            self.client.delete_table(view_id, not_found_ok=True)
-            self.client.create_table(view)
-            logger.info(f"✓ Created view {view_id}")
+            self.client.query(ddl).result()
+            logger.info(f"✓ Created/updated view {view_id} (atomic)")
             return True
         except Exception as e:
             logger.error(f"Failed to create view: {e}")
