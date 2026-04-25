@@ -81,6 +81,18 @@ def split_tsv_by_year(source_blob, target_bucket, project="nyu-datasets", temp_d
     source_blob.download_to_filename(local_file)
     print(f"   ✓ Downloaded", flush=True)
 
+    try:
+        return _split_downloaded_file(local_file, source_blob, target_bucket, temp_dir)
+    finally:
+        # Always clean up the downloaded source file, even if processing
+        # raised or returned False early. main() reuses a single temp dir
+        # across all blobs, so leaks would exhaust disk.
+        if os.path.exists(local_file):
+            os.remove(local_file)
+
+
+def _split_downloaded_file(local_file, source_blob, target_bucket, temp_dir):
+    """Split an already-downloaded gzipped TSV by year and upload."""
     year_files = {}
     year_paths = {}
     year_counts = defaultdict(int)
@@ -239,7 +251,7 @@ def split_tsv_by_year(source_blob, target_bucket, project="nyu-datasets", temp_d
 
         os.remove(year_path)
 
-    os.remove(local_file)
+    # Note: source local_file cleanup is handled by the caller's finally block
     print(f"   ✓ Cleaned up local files", flush=True)
     return True
 
