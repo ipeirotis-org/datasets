@@ -89,14 +89,19 @@ class TradesDataLoader:
         ]
 
     def create_table(self, overwrite=False):
-        """Create or recreate the trades table."""
-        try:
-            if overwrite:
-                logger.info(f"Deleting existing table {self.table_ref}...")
-                self.client.delete_table(self.table_ref)
+        """Ensure the trades table exists with the right schema.
 
+        Non-destructive: never drops an existing table. Relies on the
+        WRITE_TRUNCATE load disposition for atomic data replacement,
+        so a load failure preserves the prior table contents.
+
+        The 'overwrite' parameter is accepted for backwards compatibility
+        but no longer triggers DELETE — destructive table recreation is
+        deferred to a separate `--recreate-table` workflow if needed.
+        """
+        try:
             self.client.get_table(self.table_ref)
-            logger.info(f"✓ Table {self.table_ref} already exists")
+            logger.info(f"✓ Table {self.table_ref} already exists (data will be replaced atomically by load)")
             return True
         except NotFound:
             logger.info(f"Creating table {self.table_ref}...")
