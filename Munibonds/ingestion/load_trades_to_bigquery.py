@@ -321,7 +321,8 @@ class TradesDataLoader:
 
         # Step 4: Create typed view
         logger.info("\nCreating typed view...")
-        self.create_typed_view()
+        if not self.create_typed_view():
+            return False
 
         # Step 5: Validate
         self.validate_data()

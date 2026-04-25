@@ -87,9 +87,10 @@ class Munibonds:
                 MIN(COUPON) AS COUPON,
                 COUNT(*) AS NUM_TRADES,
                 COUNT(DISTINCT TRADE_DATE) AS NUM_DATES_TRADED,
-                COUNT(DISTINCT TRADE_DATE) /
+                SAFE_DIVIDE(
+                    COUNT(DISTINCT TRADE_DATE),
                     DATE_DIFF(MAX(TRADE_DATE), MIN(TRADE_DATE), DAY)
-                    AS FRACTION_DAYS_TRADED
+                ) AS FRACTION_DAYS_TRADED
             FROM {self.table_ref}
             WHERE CUSIP IS NOT NULL
             GROUP BY CUSIP

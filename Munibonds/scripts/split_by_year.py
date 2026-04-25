@@ -184,8 +184,11 @@ def split_tsv_by_year(source_blob, target_bucket, project="nyu-datasets", temp_d
 
             merged_path = os.path.join(temp_dir, f"merged_{year}.tsv.gz")
             with gzip.open(merged_path, 'wt') as out:
+                # Stream existing file line-by-line (avoid loading entire
+                # decompressed yearly file into memory - can be many GB)
                 with gzip.open(existing_path, 'rt') as f:
-                    out.write(f.read())
+                    for line in f:
+                        out.write(line)
                 with gzip.open(year_path, 'rt') as f:
                     f.readline()  # skip header
                     for line in f:
