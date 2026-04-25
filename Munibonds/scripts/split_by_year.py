@@ -182,17 +182,28 @@ def split_tsv_by_year(source_blob, target_bucket, project="nyu-datasets", temp_d
             existing_path = os.path.join(temp_dir, f"existing_{year}.tsv.gz")
             target_blob.download_to_filename(existing_path)
 
+            # Dedupe by RTRS_CONTROL_NUMBER (column 0 of canonical schema).
+            # Without this, rerunning split_by_year.py duplicates trades.
             merged_path = os.path.join(temp_dir, f"merged_{year}.tsv.gz")
+            seen_ctrl = set()
             with gzip.open(merged_path, 'wt') as out:
-                # Stream existing file line-by-line (avoid loading entire
-                # decompressed yearly file into memory - can be many GB)
+                # Stream existing file - keep first occurrence of each RTRS_CONTROL_NUMBER
                 with gzip.open(existing_path, 'rt') as f:
+                    out.write(f.readline())  # header
                     for line in f:
-                        out.write(line)
+                        ctrl = line.split('\t', 1)[0]
+                        if ctrl not in seen_ctrl:
+                            seen_ctrl.add(ctrl)
+                            out.write(line)
+                # Append new rows - skip header, skip already-seen control numbers
                 with gzip.open(year_path, 'rt') as f:
                     f.readline()  # skip header
                     for line in f:
-                        out.write(line)
+                        ctrl = line.split('\t', 1)[0]
+                        if ctrl not in seen_ctrl:
+                            seen_ctrl.add(ctrl)
+                            out.write(line)
+            print(f"     Merged with dedup: {len(seen_ctrl):,} unique trades", flush=True)
 
             os.remove(existing_path)
             os.remove(year_path)

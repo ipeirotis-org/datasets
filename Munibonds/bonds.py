@@ -267,7 +267,10 @@ class Munidata:
             DataFrame with similarity scores and bond details
         """
         timeseries = self.data[cusip]
-        periods = len(timeseries)
+        # Count actual observations (non-null), not the full pivot index.
+        # The pivot includes all trade dates across all CUSIPs - using len()
+        # would inflate the threshold for sparse bonds and yield mostly NaN.
+        periods = int(timeseries.count())
         threshold = max(int(periods * min_overlap), min_periods)
 
         similarity = lambda x: x.corr(timeseries, min_periods=threshold)

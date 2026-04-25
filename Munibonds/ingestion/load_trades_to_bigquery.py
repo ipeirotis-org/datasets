@@ -172,24 +172,19 @@ class TradesDataLoader:
             logger.warning("No source files found!")
             return False
 
-        failures = []
+        # Abort on first failure: with WRITE_TRUNCATE on i==1 and WRITE_APPEND
+        # on the rest, a mid-loop failure would leave the table in a partially
+        # rebuilt state. Stop early and require a manual rerun.
         for i, file_path in enumerate(files, 1):
             try:
                 gcs_uri = f"gs://{bucket}/{file_path}"
                 logger.info(f"[{i}/{len(files)}] {file_path}")
-                # Truncate on first file so re-runs are idempotent (don't duplicate)
                 self.load_gcs_file(gcs_uri, overwrite_partition=(i == 1))
             except Exception as e:
-                logger.error(f"Error loading {file_path}: {e}")
-                failures.append((file_path, str(e)))
-                # Continue with next file but track failure
-                continue
-
-        if failures:
-            logger.error(f"\n{len(failures)}/{len(files)} files failed to load:")
-            for path, err in failures:
-                logger.error(f"  ✗ {path}: {err}")
-            return False
+                logger.error(f"✗ Failed loading {file_path}: {e}")
+                logger.error(f"Aborting load. Table is in partial state with {i-1}/{len(files)} files loaded.")
+                logger.error("Fix the issue and rerun the script to fully rebuild the table.")
+                return False
 
         return True
 
