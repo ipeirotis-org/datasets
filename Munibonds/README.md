@@ -192,14 +192,18 @@ This creates `trades_{year}.tsv.gz` files (or merges with existing).
 
 ### 3. Load to BigQuery
 
-```bash
-python3 ingestion/load_trades_to_bigquery.py
-```
-
-Use `--overwrite` to recreate the table from scratch:
+The loader uses BigQuery's atomic multi-URI load (single job loads all yearly files; either all succeed or none do). Pick one of:
 
 ```bash
+# Idempotent rebuild from current GCS state (recommended for full refresh)
 python3 ingestion/load_trades_to_bigquery.py --overwrite
+
+# Append GCS files to existing table (caller responsible for dedup)
+python3 ingestion/load_trades_to_bigquery.py --append
+
+# No flag: empty/new table -> initial load. Existing table with data -> error
+# (refuses to silently duplicate). Pick --overwrite or --append explicitly.
+python3 ingestion/load_trades_to_bigquery.py
 ```
 
 ## File Format Notes

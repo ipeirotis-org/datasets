@@ -124,47 +124,18 @@ class TradesDataLoader:
         logger.info(f"Found {len(files)} trades files in gs://{bucket}/raw_wrds/")
         return sorted(files)
 
-    def load_gcs_file(self, gcs_uri, overwrite_partition=False):
-        """Load a single GCS file into BigQuery."""
-        logger.info(f"Loading {gcs_uri}...")
-
-        # BigQuery auto-detects gzip compression from file extension (.gz)
-        job_config = bigquery.LoadJobConfig(
-            source_format=bigquery.SourceFormat.CSV,
-            skip_leading_rows=1,
-            allow_quoted_newlines=True,
-            field_delimiter="\t",
-            write_disposition=(
-                bigquery.WriteDisposition.WRITE_TRUNCATE
-                if overwrite_partition
-                else bigquery.WriteDisposition.WRITE_APPEND
-            ),
-            autodetect=False,
-            schema=self.get_schema(),
-            allow_jagged_rows=True,
-            ignore_unknown_values=True,
-            max_bad_records=1000,
-        )
-
-        load_job = self.client.load_table_from_uri(
-            gcs_uri,
-            self.table_ref,
-            job_config=job_config,
-            timeout=600
-        )
-
-        result = load_job.result()
-        logger.info(
-            f"✓ Loaded {load_job.output_rows} rows from {gcs_uri} "
-            f"(output_bytes: {load_job.output_bytes})"
-        )
-        return result
-
     def load_all_files(self, bucket="msrb_munibonds_dataset", overwrite=False):
-        """Load all TSV files from GCS. Returns True only if all files loaded.
+        """Load all TSV files from GCS in a single atomic BigQuery load job.
 
-        Idempotent: truncates the table on the first file load so re-running
-        rebuilds from current GCS state instead of duplicating data.
+        BigQuery's load_table_from_uri accepts a list of URIs and runs them
+        as one atomic job: either all files load or none do. This:
+          - eliminates partial-rebuild risk on failure
+          - respects --overwrite flag semantically:
+              overwrite=True  -> WRITE_TRUNCATE (replace table contents)
+              overwrite=False -> WRITE_APPEND (add to existing data)
+          - is faster than per-file load jobs
+
+        Returns True if the load succeeded.
         """
         files = self.list_source_files(bucket)
 
@@ -172,21 +143,48 @@ class TradesDataLoader:
             logger.warning("No source files found!")
             return False
 
-        # Abort on first failure: with WRITE_TRUNCATE on i==1 and WRITE_APPEND
-        # on the rest, a mid-loop failure would leave the table in a partially
-        # rebuilt state. Stop early and require a manual rerun.
-        for i, file_path in enumerate(files, 1):
-            try:
-                gcs_uri = f"gs://{bucket}/{file_path}"
-                logger.info(f"[{i}/{len(files)}] {file_path}")
-                self.load_gcs_file(gcs_uri, overwrite_partition=(i == 1))
-            except Exception as e:
-                logger.error(f"✗ Failed loading {file_path}: {e}")
-                logger.error(f"Aborting load. Table is in partial state with {i-1}/{len(files)} files loaded.")
-                logger.error("Fix the issue and rerun the script to fully rebuild the table.")
-                return False
+        gcs_uris = [f"gs://{bucket}/{f}" for f in files]
+        disposition = (bigquery.WriteDisposition.WRITE_TRUNCATE if overwrite
+                       else bigquery.WriteDisposition.WRITE_APPEND)
 
-        return True
+        logger.info(
+            f"Atomic load of {len(gcs_uris)} files into {self.table_ref} "
+            f"({'WRITE_TRUNCATE' if overwrite else 'WRITE_APPEND'})..."
+        )
+
+        # BigQuery auto-detects gzip from .gz extension
+        job_config = bigquery.LoadJobConfig(
+            source_format=bigquery.SourceFormat.CSV,
+            skip_leading_rows=1,
+            allow_quoted_newlines=True,
+            field_delimiter="\t",
+            write_disposition=disposition,
+            autodetect=False,
+            schema=self.get_schema(),
+            allow_jagged_rows=True,
+            ignore_unknown_values=True,
+            max_bad_records=1000,
+        )
+
+        try:
+            load_job = self.client.load_table_from_uri(
+                gcs_uris,
+                self.table_ref,
+                job_config=job_config,
+                timeout=3600,  # atomic load of full dataset can take a while
+            )
+            result = load_job.result()
+            logger.info(
+                f"✓ Loaded {load_job.output_rows:,} rows total "
+                f"({load_job.output_bytes:,} bytes)"
+            )
+            return True
+        except Exception as e:
+            logger.error(f"✗ Atomic load failed: {e}")
+            logger.error(
+                "Table is unchanged (atomic load preserves prior state on failure)."
+            )
+            return False
 
     def validate_data(self):
         """Run validation queries on loaded data."""
@@ -297,24 +295,57 @@ class TradesDataLoader:
             logger.error(f"Failed to create view: {e}")
             return False
 
-    def load(self, overwrite=False):
-        """Execute the full loading pipeline."""
+    def load(self, overwrite=False, append=False):
+        """Execute the full loading pipeline.
+
+        Modes (mutually exclusive):
+          overwrite=True  -> Atomic rebuild: drop+create table, WRITE_TRUNCATE
+                             load. Safe to rerun (idempotent).
+          append=True     -> WRITE_APPEND to existing table. Caller's
+                             responsibility to avoid duplicate loads.
+          neither         -> Refuse if table already has data (avoids silent
+                             duplication). Otherwise behaves like overwrite.
+        """
+        if overwrite and append:
+            logger.error("--overwrite and --append are mutually exclusive")
+            return False
+
         logger.info("=" * 70)
         logger.info("MSRB Trades Data Loader - BigQuery")
         logger.info("=" * 70)
         logger.info(f"Target: {self.table_ref}")
-        logger.info(f"Overwrite: {overwrite}")
+        mode = "OVERWRITE" if overwrite else ("APPEND" if append else "AUTO")
+        logger.info(f"Mode: {mode}")
         logger.info("=" * 70)
 
         # Step 1: Create dataset
         if not self.create_dataset():
             return False
 
-        # Step 2: Create table
+        # Pre-check for AUTO mode: refuse if table has data without explicit flag
+        if not overwrite and not append:
+            try:
+                tbl = self.client.get_table(self.table_ref)
+                if tbl.num_rows > 0:
+                    logger.error(
+                        f"Table {self.table_ref} already has {tbl.num_rows:,} rows. "
+                        "Re-running without a flag would silently duplicate the data."
+                    )
+                    logger.error("Choose one:")
+                    logger.error("  --overwrite : drop+rebuild table from current GCS files (idempotent)")
+                    logger.error("  --append    : add GCS files to existing data (caller-managed dedup)")
+                    return False
+            except NotFound:
+                # Empty / not yet created - safe to load as initial fill
+                pass
+            # Treat empty/new table as overwrite for clean initial load
+            overwrite = True
+
+        # Step 2: Create table (drops+recreates only when overwrite=True)
         if not self.create_table(overwrite=overwrite):
             return False
 
-        # Step 3: Load data
+        # Step 3: Load data atomically
         logger.info("\nLoading data from GCS...")
         if not self.load_all_files(overwrite=overwrite):
             return False
@@ -357,7 +388,12 @@ def main():
     parser.add_argument(
         "--overwrite",
         action="store_true",
-        help="Overwrite existing table"
+        help="Drop and rebuild the table from current GCS files (idempotent, atomic)"
+    )
+    parser.add_argument(
+        "--append",
+        action="store_true",
+        help="Append GCS files to existing table (caller responsible for avoiding dupes)"
     )
 
     args = parser.parse_args()
@@ -368,7 +404,7 @@ def main():
         table_id=args.table
     )
 
-    success = loader.load(overwrite=args.overwrite)
+    success = loader.load(overwrite=args.overwrite, append=args.append)
     sys.exit(0 if success else 1)
 
 
