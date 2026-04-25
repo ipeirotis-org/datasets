@@ -203,8 +203,9 @@ def _split_downloaded_file(local_file, source_blob, target_bucket, temp_dir):
             ver_idx = CANONICAL_COLUMNS.index('VERSION_NUMBER')        # 20
 
             db_path = os.path.join(temp_dir, f"dedup_{year}.sqlite")
+            merged_path = os.path.join(temp_dir, f"merged_{year}.tsv.gz")
+            conn = None
             try:
-                merged_path = os.path.join(temp_dir, f"merged_{year}.tsv.gz")
                 conn = sqlite3.connect(db_path)
                 conn.execute("PRAGMA journal_mode=OFF")
                 conn.execute("PRAGMA synchronous=OFF")
@@ -236,14 +237,22 @@ def _split_downloaded_file(local_file, source_blob, target_bucket, temp_dir):
                     write_unique(year_path, out, skip_header=True)
                     conn.commit()
                 print(f"     Merged with dedup: {count:,} unique (ctrl, version) trades", flush=True)
-            finally:
-                conn.close()
-                if os.path.exists(db_path):
-                    os.remove(db_path)
 
-            os.remove(existing_path)
-            os.remove(year_path)
-            os.rename(merged_path, year_path)
+                # Atomically swap: remove originals, replace year_path with merged
+                os.remove(existing_path)
+                os.remove(year_path)
+                os.rename(merged_path, year_path)
+            finally:
+                # Always clean up sqlite db and partially-written merged file,
+                # whether merge succeeded or raised mid-operation.
+                if conn is not None:
+                    conn.close()
+                for path in (db_path, merged_path, existing_path):
+                    if os.path.exists(path):
+                        try:
+                            os.remove(path)
+                        except OSError:
+                            pass
 
         size_mb = os.path.getsize(year_path) / (1024 * 1024)
         target_blob.upload_from_filename(year_path)
