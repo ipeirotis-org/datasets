@@ -81,7 +81,7 @@ python3 scripts/migrate_direct.py
 python3 scripts/split_by_year.py
 
 # Load to BigQuery
-python3 1_ingestion/load_trades_to_bigquery.py
+python3 ingestion/load_trades_to_bigquery.py --overwrite
 ```
 
 ## Security Best Practices
