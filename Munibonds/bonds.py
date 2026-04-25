@@ -32,7 +32,7 @@ from google.cloud import bigquery
 # Default configuration
 DEFAULT_PROJECT = "nyu-datasets"
 DEFAULT_DATASET = "munibonds"
-DEFAULT_TABLE = "trades"
+DEFAULT_TABLE = "trades_typed"  # Use the typed view (parsed DATE/TIME columns)
 
 
 class Munibonds:

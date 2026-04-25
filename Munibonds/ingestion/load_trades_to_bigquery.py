@@ -161,13 +161,14 @@ class TradesDataLoader:
         return result
 
     def load_all_files(self, bucket="msrb_munibonds_dataset", overwrite=False):
-        """Load all TSV files from GCS."""
+        """Load all TSV files from GCS. Returns True only if all files loaded."""
         files = self.list_source_files(bucket)
 
         if not files:
             logger.warning("No source files found!")
             return False
 
+        failures = []
         for i, file_path in enumerate(files, 1):
             try:
                 gcs_uri = f"gs://{bucket}/{file_path}"
@@ -175,8 +176,15 @@ class TradesDataLoader:
                 self.load_gcs_file(gcs_uri)
             except Exception as e:
                 logger.error(f"Error loading {file_path}: {e}")
-                # Continue with next file
+                failures.append((file_path, str(e)))
+                # Continue with next file but track failure
                 continue
+
+        if failures:
+            logger.error(f"\n{len(failures)}/{len(files)} files failed to load:")
+            for path, err in failures:
+                logger.error(f"  ✗ {path}: {err}")
+            return False
 
         return True
 
