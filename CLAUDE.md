@@ -68,6 +68,29 @@ datasets/
 - Static datasets in `static_datasets/` are standalone and don't need cloud infrastructure.
 - The `Flight_Stats/` directory includes `.sql` files for creating BigQuery views.
 
+## Cloud Credentials
+
+This repo is paired with Google Cloud via the **cloud-bootstrap** skill (`.claude/skills/cloud-bootstrap/`), which stores encrypted service-account credentials in the repo so they persist across Claude Code sessions.
+
+- **Provider / Project:** GCP, project `nyu-datasets`
+- **Service account:** `claude-agent@nyu-datasets.iam.gserviceaccount.com`
+- **Roles granted:**
+  - `roles/bigquery.admin` — create/manage datasets and tables, load data, configure external tables
+  - `roles/bigquery.jobUser` — run load and query jobs
+  - `roles/storage.objectAdmin` — read/write GCS staging buckets used in the ETL pipeline
+
+### Multi-user setup
+Each team member has their own encrypted credentials file, `.cloud-credentials.<git-email>.enc`, decryptable only with that person's own passphrase. Passphrases are never shared or committed — each user sets one of `GCP_CREDENTIALS_KEY` / `CLOUD_CREDENTIALS_KEY` as an environment variable in Claude Code on the Web.
+
+### Authentication
+Automatic. The `SessionStart` hook (`.claude/hooks/cloud-auth.sh`, wired up in `.claude/settings.json`) installs `gcloud` if missing, decrypts your credentials, and activates the service account at the start of every session. No manual steps.
+
+### New team members
+Ask the agent to "add me to cloud access" — it runs the cloud-bootstrap **Add Team Member** flow, which creates a new key for the existing service account and encrypts it with your passphrase. (Requires Service Account Key Admin on the project.)
+
+### Escalating permissions
+If a cloud command fails with a 403, ask the agent to add the needed role — it runs the cloud-bootstrap **Permission Escalation** flow and tells you which role to grant.
+
 ## TODO.md
 
 This repo's TODO.md feeds into the `Teaching: Datasets ETL` section of the main tasks repo (`ipeirotis/tasks`).

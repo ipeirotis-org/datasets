@@ -1,0 +1,7 @@
+{
+  "provider": "gcp",
+  "project_id": "nyu-datasets",
+  "service_account": "claude-agent@nyu-datasets.iam.gserviceaccount.com",
+  "roles": ["roles/bigquery.admin", "roles/bigquery.jobUser", "roles/storage.objectAdmin"],
+  "created_at": "2026-06-07T23:50:58Z"
+}
