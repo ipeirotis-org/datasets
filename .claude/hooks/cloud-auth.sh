@@ -30,18 +30,40 @@ if ! command -v gcloud &> /dev/null; then
   export PATH="/home/user/google-cloud-sdk/bin:$PATH"
 fi
 
-# --- Decrypt credentials (restrictive permissions + guaranteed cleanup) ---
-trap 'rm -f /tmp/credentials.json' EXIT
+# --- Decrypt credentials to a session-stable, private location ---
+# The decrypted key must persist for the whole session so that Python Google
+# client libraries (which read GOOGLE_APPLICATION_CREDENTIALS / ADC, not the
+# gcloud CLI auth store) can authenticate. It lives only in the ephemeral
+# sandbox, never in the repo (the repo only ever holds the encrypted .enc).
+ADC_KEY="/tmp/gcp-adc-credentials.json"
 if ! (umask 077 && echo "$KEY" | openssl enc -d -aes-256-cbc -pbkdf2 \
-  -pass stdin -in "$ENC_FILE" -out /tmp/credentials.json 2>/dev/null); then
+  -pass stdin -in "$ENC_FILE" -out "$ADC_KEY" 2>/dev/null); then
   echo "WARNING: Failed to decrypt credentials — check GCP_CREDENTIALS_KEY or .enc file integrity."
+  rm -f "$ADC_KEY"
   exit 0
 fi
 
-if ! gcloud auth activate-service-account --key-file=/tmp/credentials.json 2>/dev/null; then
+if ! gcloud auth activate-service-account --key-file="$ADC_KEY" 2>/dev/null; then
   echo "WARNING: gcloud auth failed — credentials may be revoked."
+  rm -f "$ADC_KEY"
   exit 0
 fi
 gcloud config set project "$(jq -r .project_id "$CONFIG" 2>/dev/null)" 2>/dev/null || true
 
-echo "GCP credentials activated for $USER_EMAIL"
+# --- Populate Application Default Credentials for Python client libraries ---
+export GOOGLE_APPLICATION_CREDENTIALS="$ADC_KEY"
+
+# --- Persist gcloud PATH + ADC env for the rest of the session ---
+# SessionStart runs in a short-lived subprocess; without persisting these,
+# later commands in the session would not find gcloud or have ADC set.
+# $CLAUDE_ENV_FILE is the harness mechanism for exporting env to the session
+# (the same approach the cloud-bootstrap AWS hook uses for its credentials).
+if [ -n "$CLAUDE_ENV_FILE" ]; then
+  GCLOUD_BIN="$(dirname "$(command -v gcloud)")"
+  grep -qxF "export PATH=\"$GCLOUD_BIN:\$PATH\"" "$CLAUDE_ENV_FILE" 2>/dev/null || \
+    echo "export PATH=\"$GCLOUD_BIN:\$PATH\"" >> "$CLAUDE_ENV_FILE"
+  grep -qxF "export GOOGLE_APPLICATION_CREDENTIALS=\"$ADC_KEY\"" "$CLAUDE_ENV_FILE" 2>/dev/null || \
+    echo "export GOOGLE_APPLICATION_CREDENTIALS=\"$ADC_KEY\"" >> "$CLAUDE_ENV_FILE"
+fi
+
+echo "GCP credentials activated for $USER_EMAIL (gcloud CLI + Python ADC)"
